@@ -1,0 +1,118 @@
+import axios from 'axios';
+import WebSocket from 'ws';
+import { createError } from '../../middlewares/errorHandler';
+import { logger } from '../../utils/logger';
+
+/**
+ * Serviço de preço usando API REST e WebSocket da Hyperliquid Testnet
+ */
+class PriceService {
+  private restBase: string;
+  private wsUrl: string;
+  private apiKey: string;
+  private apiSecret: string;
+  private ws?: WebSocket;
+
+  constructor() {
+    // Use non-null assertion (!) para garantir ao TS que estas variáveis existem
+    this.restBase  = process.env.HYPERLIQUID_API_BASE!;
+    this.wsUrl     = process.env.HYPERLIQUID_WS_URL!;
+    this.apiKey    = process.env.HYPERLIQUID_API_KEY!;
+    this.apiSecret = process.env.HYPERLIQUID_API_SECRET!;
+
+    // Checagem em runtime (opcional, mas recomendável)
+    if (!this.restBase || !this.wsUrl || !this.apiKey || !this.apiSecret) {
+      throw new Error(
+        'Variáveis de ambiente Hyperliquid não configuradas: ' +
+        'HYPERLIQUID_API_BASE, HYPERLIQUID_WS_URL, ' +
+        'HYPERLIQUID_API_KEY e HYPERLIQUID_API_SECRET são obrigatórias.'
+      );
+    }
+  }
+
+  async fetchCurrentPrice(symbol: string): Promise<number> {
+    if (process.env.NODE_ENV !== 'production') {
+      logger.debug(`[DEV] preço mock para ${symbol}: 100.00`);
+      return 100.0;
+    }
+
+    const pair = symbol.replace('-', '/').toUpperCase();
+    const url  = `${this.restBase}/v1/markets/${pair}/ticker`;
+
+    try {
+      const res = await axios.get(url, {
+        headers: {
+          'X-API-KEY': this.apiKey,
+          'X-API-SECRET': this.apiSecret,
+        },
+        timeout: 5000,
+      });
+
+      if (res.data && typeof res.data.last === 'number') {
+        return res.data.last;
+      }
+      throw new Error('Resposta sem campo "last" numérico');
+    } catch (err: any) {
+      logger.error('🛑 Erro em PriceService.fetchCurrentPrice', {
+        service: 'betforbes-backend',
+        symbol: pair,
+        status: err.response?.status,
+        responseData: err.response?.data,
+        stack: err.stack,
+      });
+      throw createError(
+        `Falha ao buscar preço para ${symbol}`,
+        500,
+        'PRICE_FEED_ERROR'
+      );
+    }
+  }
+
+  connectWs(symbol: string, onTick: (price: number) => void): void {
+    if (this.ws) this.ws.close();
+
+    const pair = symbol.replace('-', '/').toUpperCase();
+    this.ws = new WebSocket(this.wsUrl, {
+      headers: {
+        'X-API-KEY': this.apiKey,
+        'X-API-SECRET': this.apiSecret,
+      }
+    });
+
+    this.ws.on('open', () => {
+      this.ws!.send(JSON.stringify({
+        op: 'subscribe',
+        channel: 'ticker',
+        market: pair,
+      }));
+    });
+
+    this.ws.on('message', data => {
+      try {
+        const msg = JSON.parse(data.toString());
+        if (msg.channel === 'ticker' && typeof msg.last === 'number') {
+          onTick(msg.last);
+        }
+      } catch (err) {
+        logger.error('Erro ao processar mensagem WS:', { error: err });
+      }
+    });
+
+    this.ws.on('error', err => {
+      logger.error('WS error:', { error: err });
+    });
+
+    this.ws.on('close', () => {
+      logger.warn('WebSocket fechado, reconectando em 5s...', { market: pair });
+      setTimeout(() => this.connectWs(symbol, onTick), 5000);
+    });
+  }
+
+  disconnectWs(): void {
+    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+      this.ws.close();
+    }
+  }
+}
+
+export default new PriceService();

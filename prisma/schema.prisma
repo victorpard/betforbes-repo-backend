@@ -1,0 +1,171 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// Tipos de receita cobrados pela casa
+enum RevenueType {
+  LEVERAGE_FEE    // 2% sobre o valor alavancado
+  PROFIT_FEE      // 5% sobre o lucro da ordem
+  WITHDRAWAL_FEE  // 2% sobre o valor do saque
+}
+
+enum Role {
+  USER
+  ADMIN
+  MODERATOR
+}
+
+enum ConfigType {
+  STRING
+  NUMBER
+  BOOLEAN
+  JSON
+}
+
+model User {
+  id                      String                   @id @default(uuid())
+  name                    String
+  email                   String                   @unique
+  password                String
+  isVerified              Boolean                  @default(false)
+  isActive                Boolean                  @default(true)
+  role                    Role                     @default(USER)
+  avatar                  String?
+  phone                   String?
+  birthDate               DateTime?
+  createdAt               DateTime                 @default(now())
+  updatedAt               DateTime                 @updatedAt @default(now())
+  lastLoginAt             DateTime?
+  balance                 Decimal                  @default(1000) @db.Decimal(18, 8)
+
+  // Campos para programa de afiliados
+  referralCode            String                   @unique @default(dbgenerated("(substr(md5(gen_random_uuid()::text), 1, 8))"))
+  referrerId              String?
+  referrer                User?                    @relation("UserReferrals", fields: [referrerId], references: [id])
+  referrals               User[]                   @relation("UserReferrals")
+
+  sessions                UserSession[]
+  orders                  Order[]
+
+  // Relações de afiliados
+  revenueEvents           RevenueEvent[]
+  commissionEvents        CommissionEvent[]
+
+  passwordResetTokens     PasswordResetToken[]     @relation("UserPasswordResetTokens")
+  emailVerificationTokens EmailVerificationToken[] @relation("UserEmailVerificationTokens")
+
+  @@map("users")
+}
+
+model Order {
+  id          String   @id @default(uuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  asset       String
+  type        String
+  amount      Decimal  @db.Decimal(18, 8)
+  leverage    Int
+  direction   String
+  entryPrice  Decimal  @default(0) @db.Decimal(18, 8)
+  exitPrice   Decimal? @db.Decimal(18, 8)
+  status      String   @default("OPEN")
+  profitLoss  Decimal? @db.Decimal(18, 8)
+  createdAt   DateTime @default(now())
+  closedAt    DateTime?
+
+  @@map("orders")
+}
+
+model RevenueEvent {
+  id        String      @id @default(uuid())
+  userId    String
+  user      User        @relation(fields: [userId], references: [id])
+  type      RevenueType
+  amount    Decimal     @db.Decimal(18, 8)  // valor cobrado pela casa
+  orderId   String?     // apenas para fees de ordem
+  createdAt DateTime    @default(now())
+
+  // Relação para comissões geradas a partir deste evento
+  commissionEvents CommissionEvent[] @relation("Revenue_Commissions")
+
+  @@map("revenue_events")
+}
+
+model CommissionEvent {
+  id             String       @id @default(uuid())
+  affiliateId    String
+  affiliate      User         @relation(fields: [affiliateId], references: [id])
+  revenueEventId String
+  revenueEvent   RevenueEvent @relation("Revenue_Commissions", fields: [revenueEventId], references: [id])
+  amount         Decimal      @db.Decimal(18, 8) // 10% do revenue.amount
+  createdAt      DateTime     @default(now())
+
+  @@map("commission_events")
+}
+
+model PasswordResetToken {
+  id        String   @id @default(uuid())
+  token     String   @unique
+  userId    String
+  expiresAt DateTime
+  used      Boolean  @default(false)
+  createdAt DateTime @default(now())
+  user      User     @relation("UserPasswordResetTokens", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("password_reset_tokens")
+}
+
+model EmailVerificationToken {
+  id        String   @id @default(uuid())
+  token     String   @unique
+  userId    String
+  expiresAt DateTime
+  used      Boolean  @default(false)
+  createdAt DateTime @default(now())
+  user      User     @relation("UserEmailVerificationTokens", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("email_verification_tokens")
+}
+
+model UserSession {
+  id        String   @id @default(uuid())
+  userId    String
+  token     String   @unique
+  expiresAt DateTime
+  isActive  Boolean  @default(true)
+  userAgent String?
+  ipAddress String?
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("user_sessions")
+}
+
+model SystemConfig {
+  id        String     @id @default(uuid())
+  key       String     @unique
+  value     String
+  type      ConfigType @default(STRING)
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt @default(now())
+
+  @@map("system_config")
+}
+
+model AuditLog {
+  id        String   @id @default(uuid())
+  userId    String?
+  action    String
+  resource  String
+  details   Json?
+  ipAddress String?
+  userAgent String?
+  createdAt DateTime @default(now())
+
+  @@map("audit_logs")
+}

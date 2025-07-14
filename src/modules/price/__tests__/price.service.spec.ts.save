@@ -1,0 +1,68 @@
+ E CORRIGIDA
+
+import axios from 'axios';
+import MockAdapter from 'axios-mock-adapter';
+import { PriceService } from '../price.service';
+
+describe('PriceService', () => {
+  let priceService: PriceService;
+  let mock: MockAdapter;
+  const API_BASE_URL = 'https://api.hyperliquid.xyz';
+
+  beforeEach(( ) => {
+    priceService = new PriceService();
+    mock = new MockAdapter(axios);
+  });
+
+  afterEach(() => {
+    mock.restore();
+  });
+
+  it('should return perpetual price when the ticker API succeeds', async () => {
+    const symbol = 'BTC';
+    const pair = `${symbol}/USDC`;
+    const expectedPrice = 65000.50;
+
+    // A CORREÇÃO: A resposta agora é um ARRAY com um objeto dentro,
+    // exatamente como a API real e como o serviço espera.
+    mock.onGet(`${API_BASE_URL}/v2/markets/${pair}/ticker`).reply(200, [
+      { px: expectedPrice.toString() }
+    ]);
+
+    const price = await priceService.fetchCurrentPrice(symbol);
+    expect(price).toBe(expectedPrice);
+  });
+
+  it('should fallback to spot price when the ticker API returns 404', async () => {
+    const symbol = 'ETH';
+    const pair = `${symbol}/USDC`;
+    const expectedSpotPrice = 3500.75;
+
+    mock.onGet(`${API_BASE_URL}/v2/markets/${pair}/ticker`).reply(404);
+    mock.onPost(`${API_BASE_URL}/info`).reply(200, {
+      assetCtxs: [{ name: 'ETH', markPx: expectedSpotPrice.toString() }],
+    });
+    const price = await priceService.fetchCurrentPrice(symbol);
+    expect(price).toBe(expectedSpotPrice);
+  });
+
+  it('should throw an error if both ticker and spot price APIs fail', async () => {
+    const symbol = 'LTC';
+    const pair = `${symbol}/USDC`;
+
+    mock.onGet(`${API_BASE_URL}/v2/markets/${pair}/ticker`).reply(404);
+    mock.onPost(`${API_BASE_URL}/info`).reply(500);
+    await expect(priceService.fetchCurrentPrice(symbol)).rejects.toThrow();
+  });
+
+  it('should throw an error if no price is found for the asset', async () => {
+    const symbol = 'DOGE';
+    const pair = `${symbol}/USDC`;
+
+    mock.onGet(`${API_BASE_URL}/v2/markets/${pair}/ticker`).reply(404);
+    mock.onPost(`${API_BASE_URL}/info`).reply(200, {
+      assetCtxs: [{ name: 'BTC', markPx: '65000' }],
+    });
+    await expect(priceService.fetchCurrentPrice(symbol)).rejects.toThrow();
+  });
+});
