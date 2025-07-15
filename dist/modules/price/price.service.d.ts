@@ -1,8 +1,9 @@
+import { AxiosInstance } from 'axios';
+export declare const getTickerUrl: (pair: string) => string;
+export declare const getInfoUrl: () => string;
 export declare class PriceService {
     private rest;
-    private infoUrl;
-    constructor();
+    constructor(axiosInstance?: AxiosInstance);
     fetchCurrentPrice(asset: string): Promise<number>;
 }
-export declare const priceService: PriceService;
 //# sourceMappingURL=price.service.d.ts.map

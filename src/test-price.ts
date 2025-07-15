@@ -1,11 +1,24 @@
-import 'dotenv/config'                                 // já carrega .env
-import { priceService } from './modules/price/price.service'
+// CORREÇÃO: Importa a CLASSE 'PriceService' com 'P' maiúsculo.
+import { PriceService } from './modules/price/price.service';
 
-;(async () => {
+// CORREÇÃO: Cria uma nova instância do serviço.
+const priceService = new PriceService();
+
+// Função principal assíncrona para executar o teste.
+async function testPrice() {
   try {
-    const price = await priceService.fetchCurrentPrice('BTC')
-    console.log('Preço atual BTC:', price)
-  } catch (err: any) {
-    console.error('Erro ao buscar preço:', err.message ?? err)
+    // Altere o ativo aqui para testar diferentes moedas.
+    const assetToTest = 'BTC'; 
+    
+    console.log(`Buscando preço para ${assetToTest}...`);
+    
+    const price = await priceService.fetchCurrentPrice(assetToTest);
+    
+    console.log(`Preço atual de ${assetToTest}: ${price}`);
+  } catch (error) {
+    console.error('Ocorreu um erro durante o teste:', error);
   }
-})()
+}
+
+// Executa a função de teste.
+testPrice();

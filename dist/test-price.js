@@ -1,14 +1,17 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-require("dotenv/config");
 const price_service_1 = require("./modules/price/price.service");
-(async () => {
+const priceService = new price_service_1.PriceService();
+async function testPrice() {
     try {
-        const price = await price_service_1.priceService.fetchCurrentPrice('BTC');
-        console.log('Preço atual BTC:', price);
+        const assetToTest = 'BTC';
+        console.log(`Buscando preço para ${assetToTest}...`);
+        const price = await priceService.fetchCurrentPrice(assetToTest);
+        console.log(`Preço atual de ${assetToTest}: ${price}`);
     }
-    catch (err) {
-        console.error('Erro ao buscar preço:', err.message ?? err);
+    catch (error) {
+        console.error('Ocorreu um erro durante o teste:', error);
     }
-})();
+}
+testPrice();
 //# sourceMappingURL=test-price.js.map

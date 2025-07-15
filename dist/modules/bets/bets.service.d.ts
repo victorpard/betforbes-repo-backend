@@ -1,5 +1,7 @@
 import { Order } from '@prisma/client';
 declare class BetsService {
+    private priceService;
+    constructor();
     fetchCurrentPrice(asset: string): Promise<number>;
     create(data: {
         userId: string;

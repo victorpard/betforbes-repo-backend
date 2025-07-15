@@ -5,13 +5,17 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.betsService = void 0;
 const prisma_1 = __importDefault(require("../../lib/prisma"));
-const price_service_1 = __importDefault(require("../price/price.service"));
+const price_service_1 = require("../price/price.service");
 const client_1 = require("@prisma/client");
 const decimal_js_1 = __importDefault(require("decimal.js"));
 class BetsService {
+    priceService;
+    constructor() {
+        this.priceService = new price_service_1.PriceService();
+    }
     async fetchCurrentPrice(asset) {
         const normalized = asset.replace(/[-\/]/g, '').toUpperCase();
-        return price_service_1.default.fetchCurrentPrice(normalized);
+        return this.priceService.fetchCurrentPrice(normalized);
     }
     async create(data) {
         const entryPrice = await this.fetchCurrentPrice(data.asset);
@@ -27,8 +31,8 @@ class BetsService {
                 status: 'OPEN',
             },
             include: {
-                user: { select: { referrerId: true } }
-            }
+                user: { select: { referrerId: true } },
+            },
         });
         const leverageFee = new decimal_js_1.default(orderWithUser.amount)
             .times(orderWithUser.leverage)
@@ -38,16 +42,16 @@ class BetsService {
                 userId: orderWithUser.userId,
                 type: client_1.RevenueType.LEVERAGE_FEE,
                 amount: leverageFee.toString(),
-                orderId: orderWithUser.id
-            }
+                orderId: orderWithUser.id,
+            },
         });
         if (orderWithUser.user.referrerId) {
             await prisma_1.default.commissionEvent.create({
                 data: {
                     affiliateId: orderWithUser.user.referrerId,
                     revenueEventId: revenue.id,
-                    amount: leverageFee.times(0.1).toString()
-                }
+                    amount: leverageFee.times(0.1).toString(),
+                },
             });
         }
         return orderWithUser;
@@ -57,23 +61,24 @@ class BetsService {
     }
     async close(userId, orderId) {
         const existing = await prisma_1.default.order.findUnique({
-            where: { id: orderId },
-            include: { user: { select: { referrerId: true } } }
+            where: { id: orderId, userId: userId },
+            include: { user: { select: { referrerId: true } } },
         });
-        if (!existing)
-            throw new Error('Ordem não encontrada');
+        if (!existing || existing.status !== 'OPEN') {
+            throw new Error('Ordem não encontrada ou já está fechada.');
+        }
         const exitPrice = await this.fetchCurrentPrice(existing.asset);
         const profit = new decimal_js_1.default(exitPrice)
             .minus(existing.entryPrice)
             .times(existing.amount)
             .times(existing.leverage);
-        const order = await prisma_1.default.order.update({
+        const closedOrder = await prisma_1.default.order.update({
             where: { id: orderId },
             data: {
                 exitPrice,
                 status: 'CLOSED',
-                profitLoss: profit.toString()
-            }
+                profitLoss: profit.toString(),
+            },
         });
         if (profit.gt(0)) {
             const profitFee = profit.times(0.05);
@@ -82,20 +87,20 @@ class BetsService {
                     userId,
                     type: client_1.RevenueType.PROFIT_FEE,
                     amount: profitFee.toString(),
-                    orderId: order.id
-                }
+                    orderId: closedOrder.id,
+                },
             });
             if (existing.user.referrerId) {
                 await prisma_1.default.commissionEvent.create({
                     data: {
                         affiliateId: existing.user.referrerId,
                         revenueEventId: revenue.id,
-                        amount: profitFee.times(0.1).toString()
-                    }
+                        amount: profitFee.times(0.1).toString(),
+                    },
                 });
             }
         }
-        return order;
+        return closedOrder;
     }
 }
 exports.betsService = new BetsService();

@@ -5,13 +5,14 @@ const errorHandler_1 = require("../../middlewares/errorHandler");
 const price_service_1 = require("./price.service");
 const logger_1 = require("../../utils/logger");
 const router = (0, express_1.Router)();
+const priceService = new price_service_1.PriceService();
 router.get('/', (0, errorHandler_1.asyncHandler)(async (req, res) => {
     const symbol = String(req.query.symbol || '').trim();
     if (!symbol) {
         throw (0, errorHandler_1.createError)('Parâmetro "symbol" é obrigatório', 400, 'MISSING_SYMBOL');
     }
     try {
-        const price = await price_service_1.priceService.fetchCurrentPrice(symbol);
+        const price = await priceService.fetchCurrentPrice(symbol);
         return res.json({
             success: true,
             data: {

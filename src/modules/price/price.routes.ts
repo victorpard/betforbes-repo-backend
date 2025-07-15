@@ -1,9 +1,12 @@
-import { Router, Request, Response } from 'express'
-import { asyncHandler, createError } from '../../middlewares/errorHandler'
-import { priceService } from './price.service'    // <-- aqui
-import { logger } from '../../utils/logger'
+import { Router, Request, Response } from 'express';
+import { asyncHandler, createError } from '../../middlewares/errorHandler';
+// CORREÇÃO 1: Importa a CLASSE 'PriceService' com 'P' maiúsculo.
+import { PriceService } from './price.service';
+import { logger } from '../../utils/logger';
 
-const router = Router()
+const router = Router();
+// CORREÇÃO 2: Cria uma nova instância do serviço para ser usada abaixo.
+const priceService = new PriceService();
 
 /**
  * @swagger
@@ -55,20 +58,21 @@ const router = Router()
 router.get(
   '/',
   asyncHandler(async (req: Request, res: Response) => {
-    const symbol = String(req.query.symbol || '').trim()
+    const symbol = String(req.query.symbol || '').trim();
     if (!symbol) {
-      throw createError('Parâmetro "symbol" é obrigatório', 400, 'MISSING_SYMBOL')
+      throw createError('Parâmetro "symbol" é obrigatório', 400, 'MISSING_SYMBOL');
     }
 
     try {
-      const price = await priceService.fetchCurrentPrice(symbol)   // usa a instância
+      // A linha abaixo agora funciona porque 'priceService' é uma instância válida.
+      const price = await priceService.fetchCurrentPrice(symbol);
       return res.json({
         success: true,
         data: {
           symbol: symbol.toUpperCase(),
           price,
         },
-      })
+      });
     } catch (err: any) {
       logger.error('🛑 Erro em PriceService.fetchCurrentPrice', {
         symbol,
@@ -76,14 +80,14 @@ router.get(
         status: err.response?.status,
         responseData: err.response?.data,
         stack: err.stack,
-      })
+      });
       throw createError(
         `Falha ao buscar preço para ${symbol.toUpperCase()}`,
         err.response?.status ?? 500,
-        'PRICE_ERROR'   // mantive o código de erro da service
-      )
+        'PRICE_ERROR'
+      );
     }
   })
-)
+);
 
-export default router
+export default router;

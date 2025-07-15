@@ -1,60 +1,54 @@
-import axios, { AxiosInstance } from 'axios'
-import { createError } from '../../middlewares/errorHandler'
-import { logger } from '../../utils/logger'
+import axios, { AxiosInstance } from 'axios';
+import { createError } from '../../middlewares/errorHandler';
+
+// CORREÇÃO: Adicionada a palavra-chave 'export'
+export const getTickerUrl = (pair: string) => `https://api.hyperliquid.xyz/v2/markets/${pair}/ticker`;
+export const getInfoUrl = ( ) => `https://api.hyperliquid.xyz/info`;
+
+interface AssetContext {
+  name: string;
+  markPx: string;
+}
 
 export class PriceService {
-  private rest: AxiosInstance
-  private infoUrl: string
+  private rest: AxiosInstance;
 
-  constructor() {
-    // Carrega da variável de ambiente, removendo o `/evm` caso exista
-    const apiUrl = process.env.HYPERLIQUID_API_URL!
-    this.infoUrl = (process.env.HYPERLIQUID_INFO_URL || apiUrl).replace('/evm', '')
-    this.rest = axios.create({ baseURL: this.infoUrl })
+  constructor(axiosInstance: AxiosInstance = axios ) {
+    this.rest = axiosInstance;
   }
 
   async fetchCurrentPrice(asset: string): Promise<number> {
-    // Normaliza o par (BTC -> BTC/USDC)
-    const pair = asset.includes('/') ? asset : `${asset}/USDC`
+    // CORREÇÃO: Adicionada verificação de segurança
+    if (!asset || typeof asset !== 'string') {
+      throw createError('Ativo (asset) inválido fornecido', 400, 'INVALID_ASSET');
+    }
+    
+    const pair = asset.includes('/') ? asset : `${asset}/USDC`;
 
-    // 1) Tenta ticker perpétuo
     try {
-      const perpRes = await this.rest.get(`/v2/markets/${pair}/ticker`)
-      return parseFloat(perpRes.data.price)
-    } catch (err: any) {
-      logger.warn(
-        `Não foi possível buscar o preço perpétuo para ${pair}. Tentando fallback. Erro: ${err.message}`
-      )
+      const perpUrl = getTickerUrl(pair);
+      const perpRes = await this.rest.get(perpUrl);
+      if (perpRes.data && perpRes.data[0] && perpRes.data[0].px) {
+        return parseFloat(perpRes.data[0].px);
+      }
+    } catch (error) {
+      console.warn(`Não foi possível buscar o preço perpétuo para ${pair}. Tentando fallback. Erro: ${(error as Error).message}`);
     }
 
-    // 2) Fallback via /info
-    let infoRes
     try {
-      infoRes = await this.rest.post(`/info`, { type: 'metaAndAssetCtxs' })
-    } catch (err: any) {
-      throw createError(
-        `Falha ao buscar preço perpétuo para ${pair}`,
-        err.response?.status ?? 500,
-        'PRICE_FEED_ERROR'
-      )
+      const infoUrl = getInfoUrl();
+      const infoRes = await this.rest.post(infoUrl, { type: 'metaAndAssetCtxs' });
+      const assetData = infoRes.data.assetCtxs.find(
+        (ctx: AssetContext) => ctx.name.toLowerCase() === asset.toLowerCase()
+      );
+
+      if (assetData && assetData.markPx) {
+        return parseFloat(assetData.markPx);
+      }
+    } catch (error) {
+      throw createError(`Falha ao buscar preço spot para ${asset}`, 500, 'PRICE_ERROR_FALLBACK');
     }
 
-    const data = infoRes.data
-    // encontra a chave de preço dentro de data.assetCtxs
-    const assetCtx = data.assetCtxs?.find((ctx: any) => {
-      // garante que pair seja string não-undefined
-      if (!pair.includes('/')) throw new Error(`Par inválido: ${pair}`)
-      const symbolKey = pair.split('/')[0].toUpperCase()
-      return ctx.symbol === symbolKey
-    })
-
-    if (!assetCtx || !assetCtx.markPx) {
-      throw createError(`Ativo ${pair} não encontrado na resposta da API`, 500, 'PRICE_FEED_ERROR')
-    }
-
-    return parseFloat(assetCtx.markPx)
+    throw createError(`Não foi possível encontrar um preço para o ativo ${asset}`, 404, 'PRICE_NOT_FOUND');
   }
 }
-
-// Exporta a instância pronta para uso
-export const priceService = new PriceService()
